@@ -1,0 +1,77 @@
+/* ContactSection.css */
+
+.contact-section {
+  background: linear-gradient(180deg, transparent, rgba(5,214,179,0.03), transparent);
+}
+
+.contact-subtitle {
+  font-size: 1rem;
+  color: var(--clr-text-2);
+  margin-top: 0.5rem;
+  max-width: 480px;
+}
+
+.contact-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 2.5rem;
+}
+
+.contact-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.4rem;
+  text-decoration: none;
+  color: var(--clr-text);
+  min-width: 200px;
+  flex: 1;
+  max-width: 280px;
+  transition: all var(--transition);
+}
+
+.contact-card:hover {
+  border-color: rgba(108,99,255,0.35);
+  box-shadow: 0 4px 24px rgba(108,99,255,0.15);
+}
+
+.contact-location {
+  cursor: default;
+}
+
+.contact-icon {
+  width: 42px; height: 42px;
+  border-radius: var(--radius-md);
+  background: var(--grad-surface);
+  border: 1px solid rgba(108,99,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--clr-primary-2);
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.contact-card:hover .contact-icon {
+  background: rgba(108,99,255,0.15);
+  box-shadow: 0 0 20px rgba(108,99,255,0.2);
+}
+
+.contact-label {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--clr-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--transition);
+}
+
+.contact-card:hover .contact-label {
+  color: var(--clr-text);
+}
+
+@media (max-width: 640px) {
+  .contact-card { max-width: 100%; }
+}
