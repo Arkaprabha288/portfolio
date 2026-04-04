@@ -3,13 +3,15 @@ import UploadPage from './components/UploadPage'
 import LoadingScreen from './components/LoadingScreen'
 import PortfolioPage from './components/PortfolioPage'
 import { extractTextFromPDF } from './utils/pdfExtractor'
-import { parseResumeWithGemini } from './utils/geminiParser'
+import { parseResumeWithBedrock } from './utils/bedrockParser'
 import { parseResume } from './utils/mockParser'
 import { logger, downloadExtractedData } from './utils/logger'
-import { heuristicCheck, geminiValidate } from './utils/resumeValidator'
+import { heuristicCheck } from './utils/resumeValidator'
 import { savePortfolio, fetchPortfolio } from './utils/portfolioService'
 
 const VIEWS = { upload: 'upload', loading: 'loading', portfolio: 'portfolio', error: 'error' }
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000'
 
 export default function App() {
   const [view, setView]                   = useState(VIEWS.upload)
@@ -20,6 +22,11 @@ export default function App() {
   const [rawText, setRawText]             = useState('')
   const [portfolioUUID, setPortfolioUUID] = useState(null)
 
+  // NEW: Bedrock AI analysis state
+  const [aiAnalysis, setAiAnalysis]       = useState(null)
+  const [aiLoading, setAiLoading]         = useState(false)
+  const [aiError, setAiError]             = useState('')
+
   // On mount — check if URL is /portfolio/<uuid>
   useEffect(() => {
     const match = window.location.pathname.match(/^\/portfolio\/([a-f0-9-]{36})$/)
@@ -27,7 +34,6 @@ export default function App() {
       loadPortfolioByUUID(match[1])
     }
 
-    // Browser back button — if user navigates back to /, reset to upload page
     const handlePopState = () => {
       if (window.location.pathname === '/') {
         setView(VIEWS.upload)
@@ -35,6 +41,8 @@ export default function App() {
         setPortfolioUUID(null)
         setRawText('')
         setErrorMsg('')
+        setAiAnalysis(null)
+        setAiError('')
         logger.clear()
       }
     }
@@ -47,7 +55,6 @@ export default function App() {
     setView(VIEWS.loading)
     setLoadingMsg('Loading shared portfolio...')
     try {
-      // Push home into history first so browser back button works
       window.history.replaceState(null, '', '/')
       window.history.pushState(null, '', `/portfolio/${uuid}`)
 
@@ -61,17 +68,44 @@ export default function App() {
     }
   }
 
+  // NEW: Call backend → Bedrock to analyze the saved portfolio
+  const handleBedrockAnalyze = async () => {
+    if (!portfolioUUID) return
+
+    setAiLoading(true)
+    setAiError('')
+    setAiAnalysis(null)
+
+    try {
+      const res = await fetch(`${API_URL}/api/portfolio/${portfolioUUID}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      const json = await res.json()
+
+      if (!res.ok) {
+        throw new Error(json.error || 'Analysis failed.')
+      }
+
+      setAiAnalysis(json.analysis)
+    } catch (err) {
+      setAiError(err.message || 'Could not reach analysis service.')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   const handleFileUpload = async (file) => {
     logger.clear()
     setFileName(file.name)
     setErrorMsg('')
     setRawText('')
+    setAiAnalysis(null)
+    setAiError('')
     setView(VIEWS.loading)
 
     try {
-      const apiKey = process.env.REACT_APP_GEMINI_API_KEY
-      const hasKey = apiKey && apiKey.trim() !== '' && apiKey !== 'your_gemini_api_key_here'
-
       // ── Step 1: Extract text ──────────────────────────────────
       setLoadingMsg('Extracting text from resume...')
       logger.log('File received', { name: file.name, size: file.size, type: file.type })
@@ -99,23 +133,16 @@ export default function App() {
       if (!heuristic.valid) throw new Error(heuristic.reason)
       logger.log('Heuristic check passed')
 
-      if (hasKey) {
-        logger.log('Running Gemini document validation...')
-        const geminiCheck = await geminiValidate(text, apiKey)
-        if (!geminiCheck.valid) throw new Error(geminiCheck.reason)
-        logger.log('Gemini validation passed — confirmed resume')
-      }
-
-      // ── Step 3: Parse ─────────────────────────────────────────
+      // ── Step 3: Parse via Bedrock ─────────────────────────────
+      setLoadingMsg('Analyzing with AWS Bedrock AI...')
+      logger.log('Sending to Bedrock API...')
       let data
-      if (hasKey) {
-        setLoadingMsg('Analyzing with Gemini AI...')
-        logger.log('Sending to Gemini API...')
-        data = await parseResumeWithGemini(text)
-        logger.log('Gemini response received', data)
-      } else {
+      try {
+        data = await parseResumeWithBedrock(text)
+        logger.log('Bedrock response received', data)
+      } catch (bedrockErr) {
+        logger.warn('Bedrock failed, falling back to mock parser:', bedrockErr.message)
         setLoadingMsg('Parsing resume...')
-        logger.warn('No Gemini API key — using mock parser')
         await new Promise(r => setTimeout(r, 600))
         data = parseResume(text)
         logger.log('Mock parser result', data)
@@ -131,7 +158,6 @@ export default function App() {
       const uuid = await savePortfolio(data)
       logger.log('Portfolio saved', { uuid })
 
-      // Update browser URL to the shareable link
       window.history.pushState(null, '', `/portfolio/${uuid}`)
 
       setPortfolioUUID(uuid)
@@ -154,14 +180,11 @@ export default function App() {
     setErrorMsg('')
     setRawText('')
     setPortfolioUUID(null)
+    setAiAnalysis(null)
+    setAiError('')
     window.history.pushState(null, '', '/')
     logger.clear()
   }
-
-  const hasGemini = Boolean(
-    process.env.REACT_APP_GEMINI_API_KEY &&
-    process.env.REACT_APP_GEMINI_API_KEY !== 'your_gemini_api_key_here'
-  )
 
   const shareableURL = portfolioUUID
     ? `${window.location.origin}/portfolio/${portfolioUUID}`
@@ -194,19 +217,99 @@ export default function App() {
   return (
     <>
       {view === VIEWS.upload && (
-        <UploadPage onUpload={handleFileUpload} useGemini={hasGemini} />
+        <UploadPage onUpload={handleFileUpload} />
       )}
       {view === VIEWS.loading && (
         <LoadingScreen message={loadingMsg} fileName={fileName} />
       )}
       {view === VIEWS.portfolio && portfolioData && (
-        <PortfolioPage
-          data={portfolioData}
-          rawText={rawText}
-          shareableURL={shareableURL}
-          onReset={handleReset}
-          onDownload={() => downloadExtractedData(rawText, portfolioData)}
-        />
+        <>
+          <PortfolioPage
+            data={portfolioData}
+            rawText={rawText}
+            shareableURL={shareableURL}
+            onReset={handleReset}
+            onDownload={() => downloadExtractedData(rawText, portfolioData)}
+          />
+
+          {/* ── Bedrock AI Analysis Panel ── */}
+          <div style={{
+            maxWidth: '800px',
+            margin: '0 auto 4rem',
+            padding: '0 1.5rem',
+          }}>
+            <div className="card" style={{ padding: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '1.5rem' }}>🤖</span>
+                <div>
+                  <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 700 }}>
+                    AI Career Analysis
+                  </h3>
+                  <p style={{ color: 'var(--clr-text-2)', fontSize: '0.8rem' }}>
+                    Powered by Amazon Bedrock · Nova Micro
+                  </p>
+                </div>
+              </div>
+
+              {!aiAnalysis && !aiLoading && (
+                <>
+                  <p style={{ color: 'var(--clr-text-2)', fontSize: '0.9rem', marginBottom: '1.25rem', lineHeight: 1.7 }}>
+                    Get a professional summary, your top strengths, and a skill gap suggestion — generated by AWS Bedrock AI.
+                  </p>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleBedrockAnalyze}
+                    disabled={!portfolioUUID}
+                  >
+                    ✨ Analyze My Portfolio
+                  </button>
+                </>
+              )}
+
+              {aiLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--clr-text-2)', fontSize: '0.9rem' }}>
+                  <div style={{
+                    width: '18px', height: '18px', border: '2px solid var(--clr-primary)',
+                    borderTopColor: 'transparent', borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite', flexShrink: 0
+                  }} />
+                  Asking Bedrock AI...
+                </div>
+              )}
+
+              {aiError && (
+                <div style={{
+                  background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)',
+                  borderRadius: '10px', padding: '1rem', fontSize: '0.85rem', color: '#ff6b6b',
+                  marginBottom: '1rem'
+                }}>
+                  {aiError}
+                </div>
+              )}
+
+              {aiAnalysis && (
+                <div style={{
+                  background: 'var(--clr-surface-2)', borderRadius: '12px',
+                  padding: '1.25rem', lineHeight: 1.8,
+                  color: 'var(--clr-text)', fontSize: '0.9rem',
+                  whiteSpace: 'pre-wrap',
+                  borderLeft: '3px solid var(--clr-primary)'
+                }}>
+                  {aiAnalysis}
+                  <div style={{ marginTop: '1rem' }}>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ fontSize: '0.8rem', padding: '0.5rem 1rem' }}
+                      onClick={handleBedrockAnalyze}
+                    >
+                      🔄 Re-analyze
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </>
   )

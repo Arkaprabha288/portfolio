@@ -1,0 +1,48 @@
+service: portfolito-frontend
+
+provider:
+  name: aws
+  region: ap-south-1  # Mumbai — must match backend region
+
+plugins:
+  - serverless-finch
+
+custom:
+  client:
+    bucketName: portfolito-frontend-site
+    distributionFolder: build
+    indexDocument: index.html
+    errorDocument: index.html   # needed for React Router — serves index.html on 404
+    manageResources: true       # serverless-finch creates & manages the bucket
+    distributionId: ${env:CLOUDFRONT_DISTRIBUTION_ID, ''}
+
+    # CloudFront config — serverless-finch creates this automatically
+    cloudFront:
+      enabled: true
+      comment: "Portfolito Frontend CDN"
+      defaultRootObject: index.html
+      priceClass: PriceClass_100  # cheapest — US, Canada, Europe only
+      # Custom domain (optional — leave commented unless you have a domain)
+      # aliases:
+      #   - yourdomain.com
+      # acmCertificateArn: arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID
+      customErrorResponses:
+        - errorCode: 403
+          responseCode: 200
+          responsePagePath: /index.html
+        - errorCode: 404
+          responseCode: 200
+          responsePagePath: /index.html
+
+resources:
+  Resources:
+    ServerlessDeploymentBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: portfolito-frontend-deployments-${aws:accountId}
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        VersioningConfiguration:
+          Status: Enabled

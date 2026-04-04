@@ -1,0 +1,45 @@
+service: portfolito-backend
+
+useDotenv: true  # built-in Serverless v3 — loads .env before variable resolution
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-south-1  # Mumbai — your Lambda stays here
+  memorySize: 256
+  timeout: 15
+  environment:
+    MONGO_URI: ${env:MONGO_URI}
+    FRONTEND_URL: ${env:FRONTEND_URL, 'http://localhost:3000'}
+    # Bedrock runs in us-east-1 (Nova Micro not available in ap-south-1)
+    BEDROCK_REGION: us-east-1
+
+  # IAM permissions so your Lambda can call Bedrock
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - bedrock:InvokeModel
+          Resource:
+            # Nova Micro model ARN in us-east-1
+            - arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-micro-v1:0
+
+functions:
+  api:
+    handler: index.handler
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+      - httpApi:
+          path: /
+          method: ANY
+
+plugins:
+  - serverless-offline
+
+custom:
+  serverless-offline:
+    httpPort: 5000
+    noPrependStageInUrl: true
