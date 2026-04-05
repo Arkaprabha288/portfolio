@@ -14,6 +14,10 @@ export async function parseResumeWithBedrock(rawText) {
 
   const data = await res.json()
 
+  if (res.status === 429) {
+    throw new Error('RATE_LIMITED')
+  }
+
   if (!res.ok) {
     throw new Error(data.error || 'Bedrock parsing failed.')
   }

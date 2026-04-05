@@ -26,6 +26,7 @@ export default function App() {
   const [aiAnalysis, setAiAnalysis]       = useState(null)
   const [aiLoading, setAiLoading]         = useState(false)
   const [aiError, setAiError]             = useState('')
+  const [rateLimitCountdown, setRateLimitCountdown] = useState(0)
 
   // On mount — check if URL is /portfolio/<uuid>
   useEffect(() => {
@@ -68,6 +69,16 @@ export default function App() {
     }
   }
 
+  const startRateLimitCountdown = () => {
+    setRateLimitCountdown(20)
+    const interval = setInterval(() => {
+      setRateLimitCountdown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+  }
+
   // NEW: Call backend → Bedrock to analyze the saved portfolio
   const handleBedrockAnalyze = async () => {
     if (!portfolioUUID) return
@@ -90,7 +101,12 @@ export default function App() {
 
       setAiAnalysis(json.analysis)
     } catch (err) {
-      setAiError(err.message || 'Could not reach analysis service.')
+      if (err.message === 'RATE_LIMITED') {
+        setAiError('⚠️ Too many requests. Please wait 20 seconds before trying again.')
+        startRateLimitCountdown()
+      } else {
+        setAiError(err.message || 'Could not reach analysis service.')
+      }
     } finally {
       setAiLoading(false)
     }
@@ -141,6 +157,10 @@ export default function App() {
         data = await parseResumeWithBedrock(text)
         logger.log('Bedrock response received', data)
       } catch (bedrockErr) {
+        if (bedrockErr.message === 'RATE_LIMITED') {
+          startRateLimitCountdown()
+          throw new Error('⚠️ Too many requests from your IP. Please wait 20 seconds and try again.')
+        }
         logger.warn('Bedrock failed, falling back to mock parser:', bedrockErr.message)
         setLoadingMsg('Parsing resume...')
         await new Promise(r => setTimeout(r, 600))
@@ -259,9 +279,9 @@ export default function App() {
                   <button
                     className="btn btn-primary"
                     onClick={handleBedrockAnalyze}
-                    disabled={!portfolioUUID}
+                    disabled={!portfolioUUID || rateLimitCountdown > 0}
                   >
-                    ✨ Analyze My Portfolio
+                    {rateLimitCountdown > 0 ? `Wait ${rateLimitCountdown}s` : '✨ Analyze My Portfolio'}
                   </button>
                 </>
               )}
@@ -284,6 +304,11 @@ export default function App() {
                   marginBottom: '1rem'
                 }}>
                   {aiError}
+                  {rateLimitCountdown > 0 && (
+                    <div style={{ marginTop: '0.5rem', fontWeight: 600 }}>
+                      Retry in {rateLimitCountdown}s...
+                    </div>
+                  )}
                 </div>
               )}
 

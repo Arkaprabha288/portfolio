@@ -2,10 +2,33 @@ require('dotenv').config()
 const express = require('express')
 const mongoose = require('mongoose')
 const cors = require('cors')
+const rateLimit = require('express-rate-limit')
 const serverless = require('serverless-http')
 const portfolioRoutes = require('./routes/portfolio')
 
 const app = express()
+
+// Trust proxy headers from API Gateway / CloudFront
+app.set('trust proxy', 1)
+
+// ── Rate limiters ────────────────────────────────────────────
+// General: 100 requests per 15 min per IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+})
+
+// Strict: 3 requests per 20 seconds for heavy AI/parse endpoints
+const strictLimiter = rateLimit({
+  windowMs: 20 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please wait 20 seconds before trying again.', retryAfter: 20 },
+})
 
 // Middleware
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
@@ -23,7 +46,9 @@ app.use(cors({
 app.use(express.json({ limit: '2mb' }))
 
 // Routes
-app.use('/api/portfolio', portfolioRoutes)
+app.use('/api/portfolio', generalLimiter, portfolioRoutes)
+app.use('/api/portfolio/parse', strictLimiter)
+app.use('/api/portfolio/:uuid/analyze', strictLimiter)
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok' }))
