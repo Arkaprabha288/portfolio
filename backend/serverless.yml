@@ -12,6 +12,12 @@ provider:
     MONGO_URI: ${env:MONGO_URI}
     FRONTEND_URL: ${env:FRONTEND_URL, 'http://localhost:3000'}
     BEDROCK_REGION: us-east-1
+    JWT_SECRET: ${env:JWT_SECRET}
+    GOOGLE_CLIENT_ID: ${env:GOOGLE_CLIENT_ID}
+    GOOGLE_CLIENT_SECRET: ${env:GOOGLE_CLIENT_SECRET}
+    GOOGLE_CALLBACK_URL: ${env:GOOGLE_CALLBACK_URL}
+    AVATAR_BUCKET: ${env:AVATAR_BUCKET}
+    AWS_REGION: ${env:AWS_REGION, 'ap-south-1'}
 
   # Switch to REST API (v1) — required for throttling support in serverless.yml
   apiGateway:
@@ -28,6 +34,12 @@ provider:
             - bedrock:InvokeModel
           Resource:
             - arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-micro-v1:0
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:PutObjectAcl
+          Resource:
+            - arn:aws:s3:::${env:AVATAR_BUCKET}/avatars/*
 
 functions:
   api:

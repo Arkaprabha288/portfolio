@@ -2,6 +2,7 @@ const express = require('express')
 const { v4: uuidv4 } = require('uuid')
 const Portfolio = require('../models/Portfolio')
 const { askBedrock } = require('../lib/bedrock')
+const { requireAuth } = require('../middleware/auth')
 
 const router = express.Router()
 
@@ -86,18 +87,20 @@ ${text}
 router.post('/', async (req, res) => {
   try {
     const { data } = req.body
-
-    if (!data || !data.name) {
+    if (!data || !data.name)
       return res.status(400).json({ error: 'Invalid portfolio data — name is required.' })
-    }
+
+    // attach userId if request carries a valid token (optional auth)
+    let userId = null
+    try {
+      const { verifyToken } = require('../lib/jwt')
+      const token = req.cookies?.token || req.headers.authorization?.split(' ')[1]
+      if (token) userId = verifyToken(token).id
+    } catch {}
 
     const uuid = uuidv4()
-    const portfolio = await Portfolio.create({ uuid, data })
-
-    return res.status(201).json({
-      uuid: portfolio.uuid,
-      createdAt: portfolio.createdAt,
-    })
+    const portfolio = await Portfolio.create({ uuid, userId, data })
+    return res.status(201).json({ uuid: portfolio.uuid, createdAt: portfolio.createdAt })
   } catch (err) {
     console.error('[POST /api/portfolio]', err.message)
     return res.status(500).json({ error: 'Failed to save portfolio.' })
@@ -176,6 +179,23 @@ router.post('/:uuid/analyze', async (req, res) => {
     }
 
     return res.status(500).json({ error: 'Failed to analyze portfolio.' })
+  }
+})
+
+// PUT /api/portfolio/:uuid — edit portfolio data (owner only)
+router.put('/:uuid', requireAuth, async (req, res) => {
+  try {
+    const portfolio = await Portfolio.findOne({ uuid: req.params.uuid })
+    if (!portfolio) return res.status(404).json({ error: 'Portfolio not found.' })
+    if (!portfolio.userId || portfolio.userId.toString() !== req.user.id)
+      return res.status(403).json({ error: 'Not authorized to edit this portfolio.' })
+
+    portfolio.data = { ...portfolio.data, ...req.body.data }
+    await portfolio.save()
+    return res.json({ uuid: portfolio.uuid, data: portfolio.data })
+  } catch (err) {
+    console.error('[PUT /api/portfolio/:uuid]', err.message)
+    return res.status(500).json({ error: 'Failed to update portfolio.' })
   }
 })
 

@@ -2,20 +2,11 @@ const mongoose = require('mongoose')
 
 const portfolioSchema = new mongoose.Schema(
   {
-    uuid: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
-    data: {
-      type: mongoose.Schema.Types.Mixed, // stores the full parsed JSON as-is
-      required: true,
-    },
+    uuid: { type: String, required: true, unique: true, index: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    data: { type: mongoose.Schema.Types.Mixed, required: true },
   },
-  {
-    timestamps: true, // adds createdAt, updatedAt
-  }
+  { timestamps: true }
 )
 
 module.exports = mongoose.model('Portfolio', portfolioSchema)
